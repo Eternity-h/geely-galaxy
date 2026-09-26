@@ -41,6 +41,9 @@ class GeelyVehicleLocationTracker(CoordinatorEntity, TrackerEntity):
 
     _attr_has_entity_name = True
     _attr_name = "车辆位置"
+    # 显式给个图标：HA 的地图卡片用 ha-entity-marker 渲染标记，
+    # 实体没有 icon/entity_picture 时只会画一个纯色小圆点。
+    _attr_icon = "mdi:car"
 
     def __init__(
         self,
