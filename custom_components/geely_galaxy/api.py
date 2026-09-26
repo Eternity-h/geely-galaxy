@@ -1056,6 +1056,37 @@ class GeelyGalaxyApi:
             "vin": vin,
         })
 
+    async def control_sunroof(self, vin: str | None, open_: bool) -> dict[str, Any]:
+        """控制天窗。open_=True 打开，False 关闭。"""
+        return await self._control_window_part(vin, position=2, open_=open_)
+
+    async def control_sunshade(self, vin: str | None, open_: bool) -> dict[str, Any]:
+        """控制遮阳帘。open_=True 打开，False 关闭。"""
+        return await self._control_window_part(vin, position=3, open_=open_)
+
+    async def _control_window_part(
+        self, vin: str | None, position: int, open_: bool
+    ) -> dict[str, Any]:
+        """通过 /control/window 控制指定部件。
+
+        position: 1=车窗 2=天窗 3=遮阳帘 4=车窗微开；type: 1=开 2=关。
+
+        注意：这里的 payload 形状与 control_window() 不同 —— 后者用
+        windowCtrlType，只能控制车窗，无法指定天窗/遮阳帘。本方法采用
+        geely-galaxy-assistant 的 jlyh.js 中 controlWindow() 的 payload 形状。
+        """
+        vin = await self._ensure_vin(vin)
+        return await self._vc_post("/vc/app/v1/vehicle/control/window", {
+            "clientType": 2,
+            "password": None,
+            "percent": None,
+            "platform": "2.0",
+            "position": [position],
+            "type": 1 if open_ else 2,
+            "udId": None,
+            "vin": vin,
+        })
+
     async def control_defrost(self, vin: str | None, on: bool) -> dict[str, Any]:
         """控制除霜。"""
         vin = await self._ensure_vin(vin)

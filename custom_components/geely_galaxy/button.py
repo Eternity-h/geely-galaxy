@@ -36,6 +36,10 @@ async def async_setup_entry(
         GeelyAcOffButton(coordinator, entry, api),
         GeelyWindowCloseButton(coordinator, entry, api),
         GeelyWindowVentButton(coordinator, entry, api),
+        GeelySunroofOpenButton(coordinator, entry, api),
+        GeelySunroofCloseButton(coordinator, entry, api),
+        GeelySunshadeOpenButton(coordinator, entry, api),
+        GeelySunshadeCloseButton(coordinator, entry, api),
         GeelyDefrostOnButton(coordinator, entry, api),
         GeelyDefrostOffButton(coordinator, entry, api),
         GeelyPurifierOnButton(coordinator, entry, api),
@@ -202,6 +206,86 @@ class GeelyWindowCloseButton(GeelyBaseButton):
             await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("关闭车窗失败: %s", err)
+
+
+class GeelySunroofOpenButton(GeelyBaseButton):
+    """Button to open the sunroof."""
+
+    _attr_name = "打开天窗"
+    _attr_icon = "mdi:window-closed-variant"
+
+    def __init__(self, coordinator, entry, api) -> None:
+        """Initialize."""
+        super().__init__(coordinator, entry, api)
+        self._attr_unique_id = f"{entry.entry_id}_btn_sunroof_open"
+
+    async def async_press(self) -> None:
+        """Open the sunroof."""
+        try:
+            await self._api.control_sunroof(None, open_=True)
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("打开天窗失败: %s", err)
+
+
+class GeelySunroofCloseButton(GeelyBaseButton):
+    """Button to close the sunroof."""
+
+    _attr_name = "关闭天窗"
+    _attr_icon = "mdi:window-closed-variant"
+
+    def __init__(self, coordinator, entry, api) -> None:
+        """Initialize."""
+        super().__init__(coordinator, entry, api)
+        self._attr_unique_id = f"{entry.entry_id}_btn_sunroof_close"
+
+    async def async_press(self) -> None:
+        """Close the sunroof."""
+        try:
+            await self._api.control_sunroof(None, open_=False)
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("关闭天窗失败: %s", err)
+
+
+class GeelySunshadeOpenButton(GeelyBaseButton):
+    """Button to open the sunshade."""
+
+    _attr_name = "打开遮阳帘"
+    _attr_icon = "mdi:blinds"
+
+    def __init__(self, coordinator, entry, api) -> None:
+        """Initialize."""
+        super().__init__(coordinator, entry, api)
+        self._attr_unique_id = f"{entry.entry_id}_btn_sunshade_open"
+
+    async def async_press(self) -> None:
+        """Open the sunshade."""
+        try:
+            await self._api.control_sunshade(None, open_=True)
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("打开遮阳帘失败: %s", err)
+
+
+class GeelySunshadeCloseButton(GeelyBaseButton):
+    """Button to close the sunshade."""
+
+    _attr_name = "关闭遮阳帘"
+    _attr_icon = "mdi:blinds"
+
+    def __init__(self, coordinator, entry, api) -> None:
+        """Initialize."""
+        super().__init__(coordinator, entry, api)
+        self._attr_unique_id = f"{entry.entry_id}_btn_sunshade_close"
+
+    async def async_press(self) -> None:
+        """Close the sunshade."""
+        try:
+            await self._api.control_sunshade(None, open_=False)
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("关闭遮阳帘失败: %s", err)
 
 
 class GeelyWindowVentButton(GeelyBaseButton):

@@ -77,16 +77,22 @@ async def async_setup_entry(
             GeelyChargeReservationSensor(coordinator, entry),
         ])
 
+    # 胎压与天窗/遮阳帘：VC 与 XCHANGER 的字段名一致，只是数据来源不同
+    entities.extend([
+        GeelyTirePressureSensor(coordinator, entry, "driver", "左前"),
+        GeelyTirePressureSensor(coordinator, entry, "passenger", "右前"),
+        GeelyTirePressureSensor(coordinator, entry, "driver_rear", "左后"),
+        GeelyTirePressureSensor(coordinator, entry, "passenger_rear", "右后"),
+        GeelySunroofPositionSensor(coordinator, entry),
+        GeelySunshadePositionSensor(coordinator, entry),
+    ])
+
     # XCHANGER 车型专用传感器（L7 等 PHEV）
     if is_xchanger:
         entities.extend([
             GeelyCombinedRangeSensor(coordinator, entry),
             GeelyFuelRangeSensor(coordinator, entry),
             GeelyFuelLevelSensor(coordinator, entry),
-            GeelyTirePressureSensor(coordinator, entry, "driver", "左前"),
-            GeelyTirePressureSensor(coordinator, entry, "passenger", "右前"),
-            GeelyTirePressureSensor(coordinator, entry, "driver_rear", "左后"),
-            GeelyTirePressureSensor(coordinator, entry, "passenger_rear", "右后"),
         ])
 
     # 为每个家用充电桩创建独立设备和传感器
@@ -1070,14 +1076,92 @@ class GeelyTirePressureSensor(GeelyBaseSensor):
 
     @property
     def native_value(self) -> float | None:
-        """Return the tire pressure in kPa."""
-        extra = self.vehicle_status.get("_xchanger_extra", {})
+        """Return the tire pressure in kPa.
+
+        两种数据来源，字段名一致（tyreStatusXxx）：
+        - XCHANGER 车型（L7 等）：_xchanger_extra
+        - VC 车型：vehicleTyreStatus
+        """
         key = self._POSITION_KEY_MAP.get(self._position)
-        if key:
-            value = extra.get(key)
-            if value is not None:
-                return round(float(value), 1)
-        return None
+        if not key:
+            return None
+        value = self.vehicle_status.get("_xchanger_extra", {}).get(key)
+        if value is None:
+            value = self.vehicle_status.get("vehicleTyreStatus", {}).get(key)
+        if value is None:
+            return None
+        try:
+            return round(float(value), 1)
+        except (TypeError, ValueError):
+            return None
+
+
+class GeelySunroofPositionSensor(GeelyBaseSensor):
+    """Sensor for sunroof opening percentage."""
+
+    _attr_name = "天窗开度"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:window-closed-variant"
+
+    def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_sunroof_position"
+
+    @property
+    def _window_status(self) -> dict[str, Any]:
+        return self.vehicle_status.get("vehicleWindowStatus") or {}
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the sunroof opening percentage (0 = 全关)."""
+        value = self._window_status.get("sunroofPos")
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """sunroofOpenStatus 的确切语义尚未确认，先原样暴露便于核对。"""
+        return {"open_status_raw": self._window_status.get("sunroofOpenStatus")}
+
+
+class GeelySunshadePositionSensor(GeelyBaseSensor):
+    """Sensor for sunshade opening percentage."""
+
+    _attr_name = "遮阳帘开度"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:blinds"
+
+    def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_sunshade_position"
+
+    @property
+    def _window_status(self) -> dict[str, Any]:
+        return self.vehicle_status.get("vehicleWindowStatus") or {}
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the sunshade opening percentage (0 = 全关)."""
+        value = self._window_status.get("curtainPos")
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """curtainOpenStatus 的确切语义尚未确认，先原样暴露便于核对。"""
+        return {"open_status_raw": self._window_status.get("curtainOpenStatus")}
 
 
 class HomeChargerBaseSensor(GeelyBaseSensor):
