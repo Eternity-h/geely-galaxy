@@ -296,9 +296,14 @@ class GeelyBatteryLevelSensor(GeelyBaseSensor):
         """Return the battery level."""
         battery_status = self.vehicle_status.get("vehicleBatteryStatus", {})
         level = battery_status.get("chargeLevel")
-        if level is not None:
-            return int(level)
-        return None
+        if level is None:
+            return None
+        try:
+            # 服务端可能返回 '47.0' 这类浮点格式字符串，直接 int() 会抛
+            # ValueError；而 icon 属性也读本属性，会一并失败导致实体创建不了
+            return int(float(level))
+        except (TypeError, ValueError):
+            return None
 
     @property
     def icon(self) -> str:
