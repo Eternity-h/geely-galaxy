@@ -123,25 +123,34 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _captcha_url(self, flow_id: str) -> str:
         """构造验证码页面的绝对 URL（external step 要求绝对地址）。
 
-        优先使用用户显式配置的 external/internal URL；未配置时动态
-        获取 HA 主机的局域网 IP 兜底。全程容错，避免探测异常导致流程卡死。
+        优先使用用户显式配置的 internal_url；未配置时用 HA 自己记录的
+        监听地址与端口兜底。全程容错，避免探测异常导致流程卡死。
+
+        刻意不使用 external_url：它通常是公网域名，而验证码页面是在用户
+        浏览器里打开的，局域网内可能因缺少 hairpin NAT 而打不开。
+        如需从外网添加集成，把 internal_url 配成公网地址即可。
         """
         base: str | None = None
         try:
-            base = (
-                self.hass.config.get("external_url")
-                or self.hass.config.get("internal_url")
-            )
+            base = getattr(self.hass.config, "internal_url", None)
         except Exception:  # noqa: BLE001 - 兜底，任何异常都回退到动态探测
             base = None
 
         if not base:
-            ip = "127.0.0.1"
+            # hass.config.api 是 http 组件挂上的 ApiConfig，持有真实监听端口；
+            # 注意不是 hass.config.api_port（该属性不存在）。
+            ip, port = "127.0.0.1", 8123
             try:
-                ip = self._local_ip()
+                ip = self._local_ip() or ip
             except Exception:  # noqa: BLE001
                 pass
-            port = getattr(self.hass.config, "api_port", None) or 8123
+            try:
+                api = self.hass.config.api
+                if api is not None:
+                    ip = getattr(api, "local_ip", None) or ip
+                    port = getattr(api, "port", None) or port
+            except Exception:  # noqa: BLE001
+                pass
             base = f"http://{ip}:{port}"
 
         return f"{base}/api/geely_galaxy/captcha?flow_id={flow_id}"
