@@ -374,14 +374,10 @@ class GeelyGalaxyApi:
         url = f"https://{API_HOSTS['user']}{path}"
         headers = self._build_get_headers(APP_KEYS["user"], path)
 
-        _LOGGER.info(
-            "开始刷新 AccessToken (refreshToken 前8位: %s...)",
-            self._refresh_token[:8] if self._refresh_token else "空",
-        )
+        _LOGGER.debug("开始刷新 AccessToken")
         try:
             async with session.get(url, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.debug("Refresh token response: %s", response_text)
 
                 if response.status != 200:
                     _LOGGER.error(
@@ -425,12 +421,8 @@ class GeelyGalaxyApi:
                 # 更新 refresh token（如果返回了新的）
                 new_refresh_token = token_data.get("refreshToken")
                 if new_refresh_token and new_refresh_token != self._refresh_token:
-                    old_prefix = self._refresh_token[:8] if self._refresh_token else "空"
                     self._refresh_token = new_refresh_token
-                    _LOGGER.info(
-                        "RefreshToken 已滚动续期 (%s... → %s...)",
-                        old_prefix, new_refresh_token[:8],
-                    )
+                    _LOGGER.info("RefreshToken 已滚动续期")
                     if self._on_refresh_token_updated:
                         self._on_refresh_token_updated(new_refresh_token)
                 elif new_refresh_token:
@@ -464,7 +456,7 @@ class GeelyGalaxyApi:
                     _LOGGER.warning("响应中无 refreshExpireAt 字段，无法判断 refreshToken 有效期")
 
                 if not self._token:
-                    _LOGGER.error("刷新响应中无 token 字段，centerTokenDto: %s", token_data)
+                    # centerTokenDto 可能含 refreshToken，不落日志
                     raise GeelyAuthError("No token in response")
 
                 return self._token
@@ -1230,7 +1222,6 @@ class GeelyGalaxyApi:
         try:
             async with session.post(url, data=body, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.debug("Password login response: %s", response_text)
 
                 if response.status != 200:
                     _LOGGER.error(
@@ -1292,7 +1283,6 @@ class GeelyGalaxyApi:
         try:
             async with session.post(url, data=body, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.debug("Send SMS response: %s", response_text)
 
                 if response.status != 200:
                     raise GeelyApiError(f"发送验证码失败: HTTP {response.status}")
@@ -1352,7 +1342,6 @@ class GeelyGalaxyApi:
         try:
             async with session.post(url, data=body, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.debug("SMS login response: %s", response_text)
 
                 if response.status != 200:
                     _LOGGER.error(
@@ -1495,7 +1484,7 @@ class GeelyGalaxyApi:
 
     async def get_oauth_code(self) -> str:
         """获取充电服务的 OAuth 授权码。"""
-        _LOGGER.warning("[诊断] 开始获取 OAuth 授权码...")
+        _LOGGER.debug("[诊断] 开始获取 OAuth 授权码...")
         await self._ensure_token()
 
         session = await self._ensure_session()
@@ -1506,7 +1495,7 @@ class GeelyGalaxyApi:
         try:
             async with session.get(url, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.warning("[诊断] OAuth code 响应: HTTP %s, body=%s", response.status, response_text[:300])
+                _LOGGER.debug("[诊断] OAuth code 响应: HTTP %s", response.status)
 
                 if response.status != 200:
                     raise GeelyApiError(f"OAuth code request failed: HTTP {response.status}")
@@ -1519,7 +1508,7 @@ class GeelyGalaxyApi:
                 if not oauth_code:
                     raise GeelyApiError("No OAuth code in response")
 
-                _LOGGER.warning("[诊断] OAuth 授权码获取成功")
+                _LOGGER.debug("[诊断] OAuth 授权码获取成功")
                 return oauth_code
 
         except aiohttp.ClientError as err:
@@ -1538,7 +1527,6 @@ class GeelyGalaxyApi:
         try:
             async with session.get(url, headers=headers) as response:
                 response_text = await response.text()
-                _LOGGER.debug("Recharge auth token response: %s", response_text)
 
                 if response.status != 200:
                     raise GeelyApiError(f"Auth token request failed: HTTP {response.status}")
@@ -1569,9 +1557,9 @@ class GeelyGalaxyApi:
     async def _ensure_recharge_auth(self) -> None:
         """确保有有效的充电服务 authToken。"""
         if not self._recharge_auth_token:
-            _LOGGER.warning("[诊断] 充电服务 authToken 为空，开始获取...")
+            _LOGGER.debug("[诊断] 充电服务 authToken 为空，开始获取...")
             await self.get_recharge_auth_token()
-            _LOGGER.warning("[诊断] 充电服务 authToken 获取成功")
+            _LOGGER.debug("[诊断] 充电服务 authToken 获取成功")
 
     async def _recharge_post(
         self, path: str, body_dict: dict, *, _retried: bool = False
@@ -1612,17 +1600,17 @@ class GeelyGalaxyApi:
     async def get_home_charger_list(self) -> list[dict[str, Any]]:
         """获取家用充电桩列表。"""
         try:
-            _LOGGER.warning("[诊断] 开始获取家用充电桩列表...")
+            _LOGGER.debug("[诊断] 开始获取家用充电桩列表...")
             result = await self._recharge_post("/app/hcharger/getMyPilingsNew", {})
-            _LOGGER.warning("[诊断] 充电桩列表 API 返回: %s", result)
+            _LOGGER.debug("[诊断] 充电桩列表 API 返回: %s", result)
             if isinstance(result, list) and result:
                 self._piling_code = result[0].get("pilingsCode")
-                _LOGGER.warning("[诊断] 检测到充电桩，编码: %s", self._piling_code)
+                _LOGGER.debug("[诊断] 检测到充电桩，编码: %s", self._piling_code)
                 return result
-            _LOGGER.warning("[诊断] 未检测到充电桩（列表为空或格式错误）")
+            _LOGGER.debug("[诊断] 未检测到充电桩（列表为空或格式错误）")
             return []
         except GeelyApiError as err:
-            _LOGGER.warning("[诊断] 获取充电桩列表失败: %s", err)
+            _LOGGER.debug("[诊断] 获取充电桩列表失败: %s", err)
             return []
 
     async def get_home_charger_status(self, piling_code: str | None = None) -> dict[str, Any]:
@@ -1802,12 +1790,10 @@ class GeelyGalaxyApi:
         url = f"https://{API_HOSTS['app']}{path}"
         headers = self._build_sign_headers(path)
 
-        _LOGGER.warning("[签到API] 查询签到状态: %s", url)
-        _LOGGER.warning("[签到API] 请求头: %s", json.dumps(headers, indent=2, ensure_ascii=False))
+        _LOGGER.debug("[签到API] 查询签到状态: %s", url)
         async with session.get(url, headers=headers) as response:
             response_text = await response.text()
-            _LOGGER.warning("[签到API] 响应状态: %d", response.status)
-            _LOGGER.warning("[签到API] 响应体: %s", response_text[:500])
+            _LOGGER.debug("[签到API] 响应状态: %d", response.status)
 
             if response.status != 200:
                 raise GeelyApiError(f"签到状态查询失败: HTTP {response.status}")
@@ -1815,13 +1801,12 @@ class GeelyGalaxyApi:
             data = json.loads(response_text)
             code = data.get("code")
             msg = data.get("msg", data.get("message", ""))
-            _LOGGER.warning("[签到API] code=%s, msg=%s", code, msg)
             if code not in (0, "0", "success"):
                 raise GeelyApiError(f"签到状态查询失败: code={code} msg={msg}")
 
             # data 为 true=已签到，false=未签到
             signed = data.get("data") is True
-            _LOGGER.warning("[签到API] 签到状态: %s", "已签到" if signed else "未签到")
+            _LOGGER.debug("[签到API] 签到状态: %s", "已签到" if signed else "未签到")
             return signed
 
     async def do_sign(self) -> dict[str, Any]:
@@ -1834,13 +1819,10 @@ class GeelyGalaxyApi:
         body = json.dumps(body_dict, separators=(",", ":"))
         headers = self._build_sign_headers(path, body)
 
-        _LOGGER.warning("[签到API] 执行签到: %s", url)
-        _LOGGER.warning("[签到API] 请求体: %s", body)
-        _LOGGER.warning("[签到API] 请求头: %s", json.dumps(headers, indent=2, ensure_ascii=False))
+        _LOGGER.debug("[签到API] 执行签到: %s", url)
         async with session.post(url, data=body, headers=headers) as response:
             response_text = await response.text()
-            _LOGGER.warning("[签到API] 响应状态: %d", response.status)
-            _LOGGER.warning("[签到API] 响应体: %s", response_text[:500])
+            _LOGGER.debug("[签到API] 响应状态: %d", response.status)
 
             if response.status != 200:
                 raise GeelyApiError(f"签到失败: HTTP {response.status}")
@@ -1848,9 +1830,9 @@ class GeelyGalaxyApi:
             data = json.loads(response_text)
             code = data.get("code")
             msg = data.get("msg", data.get("message", ""))
-            _LOGGER.warning("[签到API] code=%s, msg=%s", code, msg)
+            _LOGGER.debug("[签到API] code=%s, msg=%s", code, msg)
             if code not in (0, "0", "success"):
                 raise GeelyApiError(f"签到失败: code={code} msg={msg}")
 
-            _LOGGER.warning("[签到API] 签到成功! data=%s", data.get("data"))
+            _LOGGER.debug("[签到API] 签到成功! data=%s", data.get("data"))
             return data
