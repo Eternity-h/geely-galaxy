@@ -17,6 +17,11 @@ LOGIN_METHOD_TOKEN = "token"
 # 默认值
 DEFAULT_SCAN_INTERVAL = 60  # 60秒更新一次
 
+# 车辆位置：车厂以「1/3600000 度」为单位的整数返回经纬度。
+# 这不是加密，是纯单位换算（见 geely-galaxy-assistant 的 jlyh.js：longitude / 3600000）。
+# 响应中的 marsCoordinates=false 表示未做火星坐标（GCJ-02）偏移，可直接交给 HA。
+LOCATION_COORD_SCALE = 3600000
+
 # 车辆状态字段映射
 VEHICLE_STATUS_FIELDS = {
     "basicVehicleStatus": {
