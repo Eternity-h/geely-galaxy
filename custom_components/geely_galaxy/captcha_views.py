@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import re
 import ssl
 
 import aiohttp
@@ -24,6 +25,21 @@ _LOGGER = logging.getLogger(__name__)
 GEETEST_HOST = "captcha4.geely.com"
 CAPTCHA_ID = "2baef8ee692c27f1c8a0632e560242d7"
 
+# flow_id 会被原样插入验证码页面的 JS 字符串字面量，而该视图
+# requires_auth=False（任何人都能访问），因此必须限定字符集，
+# 否则构成反射型 XSS —— 可窃取 localStorage.hassTokens 接管 HA。
+# HA 的 flow_id 是 26 位 ULID（大写字母数字），此处放宽到 [_A-Za-z0-9-]。
+_FLOW_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# captcha_results 的条目只在该 flow 消费时移除，而 callback 视图同样未认证，
+# 故必须限制条目数，否则可被反复 POST 撑大内存（DoS）。
+_CAPTCHA_RESULT_MAX = 50
+
+# 上游 captcha4.geely.com 使用公共 CA 证书，正常校验证书链与主机名。
+# 在模块加载时创建一次：既避免每个请求都在事件循环里同步构建 SSLContext
+# （HA 会报 "Detected blocking call" 警告），也避免每请求新建连接器。
+_SSL_CONTEXT = ssl.create_default_context()
+
 
 # ==================== 验证码页面视图 ====================
 
@@ -37,6 +53,10 @@ class GeelyCaptchaPageView(HomeAssistantView):
     async def get(self, request: web.Request) -> web.Response:
         """返回验证码 HTML 页面。"""
         flow_id = request.query.get("flow_id", "")
+        if not _FLOW_ID_RE.fullmatch(flow_id):
+            return web.Response(
+                text="invalid flow_id", status=400, content_type="text/plain"
+            )
         html = CAPTCHA_HTML.replace("__FLOW_ID__", flow_id)
         html = html.replace("__CAPTCHA_ID__", CAPTCHA_ID)
         return web.Response(text=html, content_type="text/html")
@@ -65,14 +85,19 @@ class GeelyCaptchaCallbackView(HomeAssistantView):
         if not flow_id or not captcha_data:
             return self.json_message("Missing data", status_code=400)
 
+        if not isinstance(flow_id, str) or not _FLOW_ID_RE.fullmatch(flow_id):
+            return self.json_message("Invalid flow_id", status_code=400)
+
         required_keys = ["lot_number", "captcha_output", "pass_token", "gen_time"]
         if not all(k in captcha_data for k in required_keys):
             return self.json_message("Invalid captcha data", status_code=400)
 
         # 存储验证码结果，供 config flow 步骤读取
-        hass.data.setdefault(DOMAIN, {})
-        hass.data[DOMAIN].setdefault("captcha_results", {})
-        hass.data[DOMAIN]["captcha_results"][flow_id] = captcha_data
+        results = hass.data.setdefault(DOMAIN, {}).setdefault("captcha_results", {})
+        results[flow_id] = captcha_data
+        # 裁剪到上限，防止未认证请求无限增长内存
+        while len(results) > _CAPTCHA_RESULT_MAX:
+            results.pop(next(iter(results)), None)
 
         # 推进 config flow 到下一步
         try:
@@ -81,18 +106,30 @@ class GeelyCaptchaCallbackView(HomeAssistantView):
             )
             _LOGGER.debug("配置流程推进结果: %s", result.get("type") if isinstance(result, dict) else result)
         except Exception as err:
+            # 具体原因只记服务端日志，不回显给未认证调用者
             _LOGGER.error(
                 "推进配置流程失败 %s: %s (%s)", flow_id, err, type(err).__name__
             )
-            return self.json_message(
-                f"{type(err).__name__}: {err}" or "Unknown error",
-                status_code=500,
-            )
+            return self.json_message("Failed to advance flow", status_code=500)
 
         return self.json({"success": True})
 
 
 # ==================== GeeTest API 代理视图 ====================
+
+def _split_content_type(raw: str) -> tuple[str, str | None]:
+    """把 Content-Type 拆成 (mime, charset)。
+
+    aiohttp 新版要求 charset 单独传参，塞在 content_type 里会抛
+    ValueError: charset must not be in content_type argument。
+    """
+    segments = [seg.strip() for seg in raw.split(";")]
+    mime = segments[0] or "application/octet-stream"
+    for seg in segments[1:]:
+        if seg.lower().startswith("charset="):
+            return mime, seg.split("=", 1)[1].strip().strip("\"'")
+    return mime, None
+
 
 class GeeTestProxyView(HomeAssistantView):
     """代理 GeeTest 请求到 captcha4.geely.com。
@@ -114,15 +151,12 @@ class GeeTestProxyView(HomeAssistantView):
         return await self._proxy(request, path, "POST")
 
     async def options(self, request: web.Request, path: str) -> web.Response:
-        """处理 CORS 预检请求。"""
-        return web.Response(
-            status=200,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            },
-        )
+        """处理 CORS 预检请求。
+
+        该代理只服务同源请求（验证码页面由本集成在 HA 源上提供），因此不返回
+        Access-Control-Allow-* —— 否则任何第三方网页都能把本实例当作匿名中继。
+        """
+        return web.Response(status=200)
 
     async def _proxy(
         self, request: web.Request, path: str, method: str
@@ -160,11 +194,7 @@ class GeeTestProxyView(HomeAssistantView):
                 headers["Content-Type"] = ct
 
         try:
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            connector = aiohttp.TCPConnector(ssl=_SSL_CONTEXT)
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.request(
                     method,
@@ -196,19 +226,20 @@ class GeeTestProxyView(HomeAssistantView):
                     elif clean_path.endswith(".css"):
                         content_type = "text/css; charset=utf-8"
 
+                    mime, charset = _split_content_type(content_type)
+                    extra = {"charset": charset} if charset else {}
                     return web.Response(
                         body=resp_body,
                         status=resp.status,
-                        content_type=content_type,
-                        headers={
-                            "Access-Control-Allow-Origin": "*",
-                            "Cache-Control": "no-cache",
-                        },
+                        content_type=mime,
+                        headers={"Cache-Control": "no-cache"},
+                        **extra,
                     )
         except Exception as err:
+            # 具体原因只记服务端日志，不回显给未认证调用者
             _LOGGER.error("GeeTest 代理错误: %s", err)
             return web.Response(
-                text=f"Proxy error: {err}",
+                text="Proxy error",
                 status=502,
                 content_type="text/plain",
             )
