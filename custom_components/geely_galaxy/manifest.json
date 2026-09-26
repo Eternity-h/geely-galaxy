@@ -1,12 +1,12 @@
 {
   "domain": "geely_galaxy",
   "name": "Geely Galaxy",
-  "codeowners": ["@lyj5812"],
+  "codeowners": ["@Eternity-h"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/lyj5812/geely-galaxy",
+  "documentation": "https://github.com/Eternity-h/geely-galaxy",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/lyj5812/geely-galaxy/issues",
+  "issue_tracker": "https://github.com/Eternity-h/geely-galaxy/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }
